@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>議事録アクション抽出器</title>
+    <meta
+      name="description"
+      content="議事録から行動候補を抽出し、担当・期限の欠落を検知する Python ツールの実装解説"
+    />
+    <style>
+      :root {
+        --blue: #0068b6;
+        --red: #fb4113;
+        --ink: #221714;
+        --muted: #5b5350;
+        --bg: #ffffff;
+        --panel: #f4f7fb;
+        --line: #dfe5ec;
+        --ok: #1d7a46;
+        --okbg: #e8f5ee;
+        --warnbg: #fff1ec;
+        --code: #1b2430;
+        --codefg: #e6edf3;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --ink: #ece8e6;
+          --muted: #b5aeab;
+          --bg: #12161b;
+          --panel: #1b222b;
+          --line: #2c3642;
+          --blue: #4ea3e6;
+          --red: #ff7a52;
+          --ok: #5fcf8f;
+          --okbg: #16301f;
+          --warnbg: #3a2018;
+          --code: #0b0f14;
+        }
+      }
+      :root[data-theme="dark"] {
+        --ink: #ece8e6;
+        --muted: #b5aeab;
+        --bg: #12161b;
+        --panel: #1b222b;
+        --line: #2c3642;
+        --blue: #4ea3e6;
+        --red: #ff7a52;
+        --ok: #5fcf8f;
+        --okbg: #16301f;
+        --warnbg: #3a2018;
+        --code: #0b0f14;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
+        font-size: 17px;
+        line-height: 1.85;
+      }
+      .wrap {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 0 16px 80px;
+      }
+      header.hero {
+        border-bottom: 4px solid var(--blue);
+        padding: 48px 0 28px;
+        margin-bottom: 8px;
+      }
+      .eyebrow {
+        color: var(--blue);
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        font-size: 15px;
+      }
+      h1 {
+        font-size: clamp(28px, 5vw, 40px);
+        line-height: 1.35;
+        margin: 0.3em 0 0.4em;
+      }
+      .lead {
+        font-size: 18px;
+        color: var(--muted);
+        margin: 0;
+      }
+      h2 {
+        font-size: 26px;
+        margin: 56px 0 16px;
+        padding-left: 14px;
+        border-left: 6px solid var(--blue);
+        line-height: 1.4;
+      }
+      h3 {
+        font-size: 20px;
+        margin: 28px 0 10px;
+      }
+      p {
+        margin: 0.6em 0;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+        margin: 18px 0;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px 18px;
+      }
+      .card .k {
+        font-size: 14px;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .card .v {
+        font-size: 30px;
+        font-weight: 800;
+        color: var(--blue);
+        line-height: 1.3;
+      }
+      .card .v.red {
+        color: var(--red);
+      }
+      .card .s {
+        font-size: 15px;
+        color: var(--muted);
+      }
+      .tbl {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 12px 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 560px;
+        font-size: 16px;
+      }
+      table.narrow {
+        min-width: 0;
+      }
+      table.narrow td:first-child {
+        white-space: nowrap;
+      }
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 9px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--panel);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      td code,
+      p code,
+      li code {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 15px;
+        font-family: "Consolas", "SFMono-Regular", monospace;
+        word-break: break-all;
+      }
+      .ok {
+        color: var(--ok);
+        font-weight: 700;
+      }
+      .ng {
+        color: var(--red);
+        font-weight: 700;
+      }
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 14px 0;
+      }
+      .flow span {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-weight: 700;
+        font-size: 16px;
+      }
+      .flow b {
+        color: var(--blue);
+      }
+      .note {
+        background: var(--warnbg);
+        border-left: 6px solid var(--red);
+        border-radius: 6px;
+        padding: 14px 18px;
+        margin: 16px 0;
+      }
+      .note.good {
+        background: var(--okbg);
+        border-left-color: var(--ok);
+      }
+      .note strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      ul,
+      ol {
+        padding-left: 1.4em;
+      }
+      li {
+        margin: 0.3em 0;
+      }
+      details {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin: 14px 0;
+        background: var(--panel);
+      }
+      summary {
+        cursor: pointer;
+        padding: 14px 18px;
+        font-weight: 700;
+      }
+      pre {
+        margin: 0;
+        background: var(--code);
+        color: var(--codefg);
+        padding: 18px;
+        overflow-x: auto;
+        font-size: 14px;
+        line-height: 1.6;
+        border-radius: 0 0 10px 10px;
+        font-family: "Consolas", "SFMono-Regular", monospace;
+      }
+      footer {
+        margin-top: 64px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hero">
+        <div class="eyebrow">実装レポート ・ 2026-09-23</div>
+        <h1>議事録アクション抽出器</h1>
+        <p class="lead">
+          議事録からやるべきこと（行動候補）を拾い出し、担当と期限が書かれていないものを自動で見つける
+          Python ツールです。表形式にも対応しています。
+        </p>
+      </header>
+
+      <h2>何をするツールか</h2>
+      <div class="flow">
+        <span>議事録テキスト</span><b>→</b><span>行動候補を抽出</span><b>→</b
+        ><span>担当・期限を読み取り</span><b>→</b><span>欠落を判定</span>
+      </div>
+      <p>1行（または表の1行）を1件の行動として、次の項目を返します。</p>
+      <div class="tbl">
+        <table class="narrow">
+          <tr>
+            <th>項目</th>
+            <th>内容</th>
+          </tr>
+          <tr>
+            <td><code>text</code></td>
+            <td>行動の本文</td>
+          </tr>
+          <tr>
+            <td><code>owner</code></td>
+            <td>担当者（読めなければ空）</td>
+          </tr>
+          <tr>
+            <td><code>start</code> / <code>due</code></td>
+            <td>開始日・期限（ISO 形式。期間なら終了日が期限）</td>
+          </tr>
+          <tr>
+            <td><code>due_text</code></td>
+            <td>表の期限セルに書かれていた原文</td>
+          </tr>
+          <tr>
+            <td><code>missing</code></td>
+            <td>
+              欠落項目（<code>["担当"]</code>・<code>["期限"]</code>・両方）
+            </td>
+          </tr>
+          <tr>
+            <td><code>unparsed</code></td>
+            <td>期限は書いてあるが日付として読めない（例：「来週中」）</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>判定ルール</h2>
+      <h3>行動とみなす行</h3>
+      <ul>
+        <li>「対応・確認・送付・作成・連絡・提出」を含む行</li>
+        <li>
+          ただし「作成者」「連絡先」「提出日」のように、直後に「者・先・日・済・不要」が続く言い方は行動として数えない
+        </li>
+        <li>
+          行内に「対応済」「確認不要」などがあれば、完了・不要とみなして行ごと除外
+        </li>
+        <li>
+          見出し行に「担当」列と「アクション／内容」列がある<b>表</b>は、行動語の有無に関係なく全行を行動とみなす
+        </li>
+      </ul>
+      <h3>担当の読み取り</h3>
+      <ul>
+        <li>
+          <code>担当：</code
+          >と<code>担当者：</code>の両方に対応。名前は読点・句点・空白（全角を含む）の手前まで
+        </li>
+        <li>
+          「未定・未割当・調整中・TBD・－・？」は、書いてあっても<b>担当なし</b>として扱う
+        </li>
+      </ul>
+      <h3>期限の読み取り</h3>
+      <ul>
+        <li>
+          <code>2026-09-30</code
+          >・<code>2026/09/30</code>・<code>2026年9月30日</code>・全角数字の
+          <code>２０２６／１０／０５</code>
+        </li>
+        <li>
+          期間
+          <code>2026/05/23～2026/09/23</code>
+          は終了日を期限とし、開始日も保持（ラベル「期間：」の有無は問わない）
+        </li>
+        <li>
+          表の <code>9/30</code>・<code>12月1日</code>
+          のような年のない日付は、会議日から年を補う（12月の会議の「1/10」は翌年）
+        </li>
+        <li>
+          日付が1つだけのときは「期限：」などのラベルが必要。本文中の関係ない日付を期限と取り違えないため
+        </li>
+        <li>
+          9月31日のような存在しない日付や、開始日が終了日より後の期間は、読めない期限（<code>unparsed</code>）として扱う
+        </li>
+      </ul>
+
+      <h2>判定の例（自動テストで確認済み）</h2>
+      <div class="tbl">
+        <table>
+          <tr>
+            <th>入力</th>
+            <th>担当</th>
+            <th>期限</th>
+            <th>判定</th>
+          </tr>
+          <tr>
+            <td>研修資料を作成。担当者：鈴木章裕　2026/05/23～2026/09/23</td>
+            <td>鈴木章裕</td>
+            <td>2026-09-23（開始 05-23）</td>
+            <td class="ok">欠落なし</td>
+          </tr>
+          <tr>
+            <td>
+              報告書を提出。担当者：鈴木章裕　期間：2026/05/23～2026/09/23
+            </td>
+            <td>鈴木章裕</td>
+            <td>2026-09-23</td>
+            <td class="ok">欠落なし</td>
+          </tr>
+          <tr>
+            <td>契約書を確認。担当：山本 期限：２０２６／１０／０５</td>
+            <td>山本</td>
+            <td>2026-10-05</td>
+            <td class="ok">欠落なし</td>
+          </tr>
+          <tr>
+            <td>見積を送付。担当：高橋。期限：来週中</td>
+            <td>高橋</td>
+            <td>—</td>
+            <td class="ng">期限（記載はあるが読めない）</td>
+          </tr>
+          <tr>
+            <td>請求書を送付。担当：未定 期限：2026-10-10</td>
+            <td>—</td>
+            <td>2026-10-10</td>
+            <td class="ng">担当</td>
+          </tr>
+          <tr>
+            <td>先方に確認。担当：TBD</td>
+            <td>—</td>
+            <td>—</td>
+            <td class="ng">担当・期限</td>
+          </tr>
+          <tr>
+            <td>表：| 田中様 | 導入可否の検討 | 9/30 |</td>
+            <td>田中様</td>
+            <td>2026-09-30</td>
+            <td class="ok">欠落なし</td>
+          </tr>
+          <tr>
+            <td>表：| 鈴木 | 資料共有 | — |</td>
+            <td>鈴木</td>
+            <td>—</td>
+            <td class="ng">期限</td>
+          </tr>
+          <tr>
+            <td>議事録の作成者：伊藤</td>
+            <td colspan="3">除外（「作成者」は人を指す言葉）</td>
+          </tr>
+          <tr>
+            <td>先方への連絡は対応済み</td>
+            <td colspan="3">除外（完了済み）</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>実データへの一括実行（検証の途中経過）</h2>
+      <p>
+        議事録生成用の Claude
+        プロジェクトにある全会話を回収し、この抽出器を一括で適用しました。
+      </p>
+      <div class="cards">
+        <div class="card">
+          <div class="k">回収した会話</div>
+          <div class="v">735件</div>
+          <div class="s">回収エラー 0件</div>
+        </div>
+        <div class="card">
+          <div class="k">議事録ファイルを検出</div>
+          <div class="v">719件</div>
+          <div class="s">
+            Markdown 488／HTML 211／本文 20
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">御礼メールを取り違え</div>
+          <div class="v red">319件</div>
+          <div class="s">回収条件の不備（下記）</div>
+        </div>
+      </div>
+      <div class="note">
+        <strong>判明した問題：議事録の代わりに御礼メールを拾っていた</strong>
+        各会話では「議事録テキスト → HTML →
+        御礼メール」の順にファイルが作られます。回収の条件を「冒頭に"議事録"を含む最後のファイル」としていたため、本文に「議事録」を含み、しかも最後に作られる御礼メールが選ばれていました。このため、一括実行の件数（担当・期限の欠落率）は<b>まだ正しい値ではありません</b>。
+      </div>
+      <h3>わかった議事録の書き方と、次の改修</h3>
+      <ul>
+        <li>
+          アクションの書き方は3通り：①表（担当｜アクション｜期限）②「■
+          ネクストアクション」の見出しの下に【弊社側】【先方側】のグループを立てる形
+          ③「・[鈴木]資料を共有(当日中)」と担当を［］、期限を（）で書く形
+        </li>
+        <li>
+          回収をやり直す：ファイル名に「議事録」を含み「メール・御礼」を含まないものを優先し、Markdown
+          を優先する
+        </li>
+        <li>
+          抽出は「ネクストアクション」などの見出しの範囲内だけを読む（御礼メールや提案本文の誤検知を防ぐ）
+        </li>
+        <li>
+          担当は ［X］・【X】・グループ見出しの引き継ぎから、期限は行末の（
+          ）から読む
+        </li>
+        <li>
+          期限の欠落は「日付あり／相対表現あり（当日中・近日中など）／記載なし」の3区分で報告する
+        </li>
+        <li>
+          合格基準：アクション見出しの検出率と、無作為に選んだ10件の目視照合
+        </li>
+      </ul>
+
+      <h2>ソースコード</h2>
+      <details>
+        <summary>
+          action_extractor.py（196行・標準ライブラリのみ）を開く
+        </summary>
+        <pre><code>&quot;&quot;&quot;議事録から行動候補を抽出し、担当・期限の欠落を検知する。&quot;&quot;&quot;
+import re
+from datetime import date
+
+ACTION_WORDS = (&quot;対応&quot;, &quot;確認&quot;, &quot;送付&quot;, &quot;作成&quot;, &quot;連絡&quot;, &quot;提出&quot;)
+# 完了済み・不要・名詞用法（作成者／連絡先／提出日 等）は行動とみなさない
+ACTION = re.compile(&quot;(?:&quot; + &quot;|&quot;.join(ACTION_WORDS) + &quot;)(?!済|不要|者|先|日)&quot;)
+# 「連絡は対応済み」のように、行内に完了・不要の表現があれば行ごと除外
+DONE = re.compile(&quot;(?:&quot; + &quot;|&quot;.join(ACTION_WORDS) + &quot;)(?:済|不要)&quot;)
+# 「担当：」「担当者：」の両方。名前は読点・句点・空白（全角含む）の手前まで
+OWNER = re.compile(r&quot;担当者?\s*[:：]\s*([^、,，。\s]+)&quot;)
+# 担当欄が埋まっていても実質未決のもの
+OWNER_PLACEHOLDERS = {&quot;未定&quot;, &quot;未割当&quot;, &quot;未割り当て&quot;, &quot;調整中&quot;, &quot;TBD&quot;, &quot;tbd&quot;, &quot;-&quot;, &quot;－&quot;, &quot;ー&quot;, &quot;?&quot;, &quot;？&quot;}
+# 2026-09-30 / 2026/09/30 / 2026年9月30日（全角数字も可）
+DATE = r&quot;(\d{4})\s*[/／\-－年.]\s*(\d{1,2})\s*[/／\-－月.]\s*(\d{1,2})日?&quot;
+RANGE_SEP = r&quot;\s*[～〜~]\s*&quot;
+# 期間：開始～終了（ラベル省略可）→ 終了日を期限とみなす
+RANGE = re.compile(r&quot;(?:(?:期限|期間|納期)\s*[:：]\s*)?&quot; + DATE + RANGE_SEP + DATE)
+# 期限：日付（単一日付はラベル必須＝本文中の無関係な日付を拾わない）
+SINGLE = re.compile(r&quot;(?:期限|期間|納期)\s*[:：]\s*&quot; + DATE)
+DUE_LABEL = re.compile(r&quot;(?:期限|期間|納期)\s*[:：]&quot;)
+
+
+def _to_date(y, m, d):
+    try:
+        return date(int(y), int(m), int(d))
+    except ValueError:
+        return None
+
+
+def _parse_due(line):
+    &quot;&quot;&quot;(start, due, unparsed) を返す。期限らしき記載があるのに読めなければ unparsed=True。&quot;&quot;&quot;
+    m = RANGE.search(line)
+    if m:
+        start, end = _to_date(*m.group(1, 2, 3)), _to_date(*m.group(4, 5, 6))
+        if start and end and start &lt;= end:
+            return start, end, False
+        return None, None, True
+    m = SINGLE.search(line)
+    if m:
+        due = _to_date(*m.group(1, 2, 3))
+        return None, due, due is None
+    return None, None, bool(DUE_LABEL.search(line))
+
+
+def extract_candidates(minutes):
+    results = []
+    for number, line in enumerate(minutes.splitlines(), 1):
+        if not ACTION.search(line) or DONE.search(line):
+            continue
+        owner = OWNER.search(line)
+        if owner and owner.group(1) in OWNER_PLACEHOLDERS:
+            owner = None
+        start, due, unparsed = _parse_due(line)
+        missing = []
+        if not owner:
+            missing.append(&quot;担当&quot;)
+        if not due:
+            missing.append(&quot;期限&quot;)
+        results.append({&quot;line&quot;: number, &quot;text&quot;: line.strip(),
+                        &quot;owner&quot;: owner.group(1) if owner else None,
+                        &quot;start&quot;: start.isoformat() if start else None,
+                        &quot;due&quot;: due.isoformat() if due else None,
+                        &quot;missing&quot;: missing,
+                        &quot;unparsed&quot;: unparsed})
+    return results
+
+
+# ---- 表形式（| 担当 | アクション | 期限 | ...）のアクション表 ----
+OWNER_COL = re.compile(r&quot;担当|誰が|責任者&quot;)
+TASK_COL = re.compile(r&quot;アクション|タスク|内容|項目|やること|対応事項&quot;)
+DUE_COL = re.compile(r&quot;期限|期日|納期|いつまで|時期&quot;)
+# 年なしの日付（9/30・9月30日）。年は会議日から補う
+MONTH_DAY = re.compile(r&quot;(?&lt;!\d)(\d{1,2})\s*[/／月]\s*(\d{1,2})日?(?!\d)&quot;)
+EMPTY_CELL = {&quot;&quot;, &quot;-&quot;, &quot;－&quot;, &quot;ー&quot;, &quot;—&quot;, &quot;―&quot;, &quot;なし&quot;, &quot;TBD&quot;, &quot;tbd&quot;, &quot;未定&quot;, &quot;要確認&quot;, &quot;調整中&quot;, &quot;期限なし&quot;}
+
+
+def _cells(line):
+    return [c.strip() for c in line.strip().strip(&quot;|&quot;).split(&quot;|&quot;)]
+
+
+def _is_separator(line):
+    return bool(re.fullmatch(r&quot;\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?&quot;, line.strip()))
+
+
+def _parse_due_cell(cell, base):
+    &quot;&quot;&quot;表の期限セル → (start, due, unparsed)。日付でない記載（当日中・来週 等）は unparsed。&quot;&quot;&quot;
+    if cell in EMPTY_CELL:
+        return None, None, False
+    start, due, unparsed = _parse_due(&quot;期限：&quot; + cell)
+    if due:
+        return start, due, False
+    m = MONTH_DAY.search(cell)
+    if m and base:
+        due = _to_date(base.year, *m.groups())
+        if due and (base - due).days &gt; 180:  # 12月の会議で「1/10」→翌年
+            due = _to_date(base.year + 1, *m.groups())
+        if due:
+            return None, due, False
+    return None, None, True
+
+
+def extract_from_tables(minutes, base=None):
+    &quot;&quot;&quot;見出し行に「担当」列と「アクション／内容」列を持つ表の全行を行動として扱う。&quot;&quot;&quot;
+    results, header = [], None
+    lines = minutes.splitlines()
+    for number, line in enumerate(lines, 1):
+        if not line.strip().startswith(&quot;|&quot;):
+            header = None
+            continue
+        if _is_separator(line):
+            continue
+        cells = _cells(line)
+        nxt = lines[number] if number &lt; len(lines) else &quot;&quot;
+        if _is_separator(nxt) or header is None:
+            cols = {&quot;owner&quot;: None, &quot;task&quot;: None, &quot;due&quot;: None}
+            for i, c in enumerate(cells):
+                for key, pat in ((&quot;owner&quot;, OWNER_COL), (&quot;task&quot;, TASK_COL), (&quot;due&quot;, DUE_COL)):
+                    if cols[key] is None and pat.search(c):
+                        cols[key] = i
+                        break
+            is_header = cols[&quot;owner&quot;] is not None and cols[&quot;task&quot;] is not None
+            if _is_separator(nxt) or is_header:
+                header = cols if is_header else None
+                continue
+        if header is None or DONE.search(line):
+            continue
+        get = lambda k: cells[header[k]] if header[k] is not None and header[k] &lt; len(cells) else &quot;&quot;
+        owner = get(&quot;owner&quot;)
+        owner = None if owner in EMPTY_CELL or owner in OWNER_PLACEHOLDERS else owner
+        due_text = get(&quot;due&quot;)
+        start, due, unparsed = _parse_due_cell(due_text, base)
+        missing = ([] if owner else [&quot;担当&quot;]) + ([] if due else [&quot;期限&quot;])
+        results.append({&quot;line&quot;: number, &quot;text&quot;: get(&quot;task&quot;) or line.strip(),
+                        &quot;owner&quot;: owner, &quot;start&quot;: start.isoformat() if start else None,
+                        &quot;due&quot;: due.isoformat() if due else None, &quot;due_text&quot;: due_text or None,
+                        &quot;missing&quot;: missing, &quot;unparsed&quot;: unparsed})
+    return results
+
+
+def extract_all(minutes, base=None):
+    &quot;&quot;&quot;アクション表があれば表を正とし、無ければ行ベース抽出にフォールバックする。&quot;&quot;&quot;
+    rows = extract_from_tables(minutes, base)
+    return (rows, &quot;table&quot;) if rows else (extract_candidates(minutes), &quot;line&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    sample = &quot;&quot;&quot;新提案書を作成。担当：田中 期限：2026-09-30
+雑談：来週の天気
+顧客へ確認。担当：佐藤
+研修資料を作成。担当者：鈴木章裕　2026/05/23～2026/09/23
+報告書を提出。担当者：鈴木章裕　期間：2026/05/23～2026/09/23
+見積を送付。担当：高橋。期限：来週中
+契約書を確認。担当：山本 期限：２０２６／１０／０５
+議事録の作成者：伊藤
+先方への連絡は対応済み
+請求書は提出済。対応不要
+請求書を送付。担当：未定 期限：2026-10-10
+先方に確認。担当：TBD&quot;&quot;&quot;
+    rows = extract_candidates(sample)
+    assert len(rows) == 8
+    assert rows[6][&quot;owner&quot;] is None and rows[6][&quot;missing&quot;] == [&quot;担当&quot;]
+    assert rows[7][&quot;missing&quot;] == [&quot;担当&quot;, &quot;期限&quot;]
+    assert rows[0][&quot;missing&quot;] == [] and rows[0][&quot;due&quot;] == &quot;2026-09-30&quot;
+    assert rows[1][&quot;missing&quot;] == [&quot;期限&quot;] and rows[1][&quot;unparsed&quot;] is False
+    assert rows[2][&quot;owner&quot;] == &quot;鈴木章裕&quot;
+    assert rows[2][&quot;start&quot;] == &quot;2026-05-23&quot; and rows[2][&quot;due&quot;] == &quot;2026-09-23&quot;
+    assert rows[3][&quot;owner&quot;] == &quot;鈴木章裕&quot; and rows[3][&quot;due&quot;] == &quot;2026-09-23&quot;
+    assert rows[4][&quot;owner&quot;] == &quot;高橋&quot; and rows[4][&quot;missing&quot;] == [&quot;期限&quot;]
+    assert rows[4][&quot;unparsed&quot;] is True
+    assert rows[5][&quot;due&quot;] == &quot;2026-10-05&quot;
+    table = &quot;&quot;&quot;## 基本情報
+| 項目 | 内容 |
+|---|---|
+| 日時 | 2026年9月16日 |
+
+## アクション（担当・期限）
+| 担当 | アクション | 期限 | 優先度 |
+|---|---|---|---|
+| 鈴木（コミクス） | 議事録の送付 | 当日中 | 高 |
+| 田中様 | 導入可否の検討 | 9/30 | 中 |
+| 未定 | 見積の作成 | 2026/10/05 | 低 |
+| 鈴木 | 資料共有 | — | 低 |
+| 鈴木 | 請求書 対応済 | 9/20 | 低 |&quot;&quot;&quot;
+    trows, mode = extract_all(table, date(2026, 9, 16))
+    assert mode == &quot;table&quot; and len(trows) == 4
+    assert trows[0][&quot;owner&quot;] == &quot;鈴木（コミクス）&quot; and trows[0][&quot;unparsed&quot;] is True
+    assert trows[1][&quot;due&quot;] == &quot;2026-09-30&quot; and trows[1][&quot;missing&quot;] == []
+    assert trows[2][&quot;missing&quot;] == [&quot;担当&quot;] and trows[2][&quot;due&quot;] == &quot;2026-10-05&quot;
+    assert trows[3][&quot;missing&quot;] == [&quot;期限&quot;] and trows[3][&quot;unparsed&quot;] is False
+    # HTML 由来（区切り行なし）の表
+    html_table = &quot;| 担当者 | タスク | 期日 |\n| 佐藤 | 提案書作成 | 12月1日 |&quot;
+    assert extract_all(html_table, date(2026, 11, 20))[0][0][&quot;due&quot;] == &quot;2026-12-01&quot;
+    assert extract_all(&quot;| 担当 | 内容 | 期限 |\n| 高橋 | 送付 | 1/10 |&quot;, date(2026, 12, 20))[0][0][&quot;due&quot;] == &quot;2027-01-10&quot;
+    for r in rows + trows:
+        print(r)
+</code></pre>
+      </details>
+      <p>
+        実行：<code>python3 action_extractor.py</code>
+        で内蔵テストが走ります。関数
+        <code>extract_all(議事録テキスト, 会議日)</code>
+        が、表があれば表を、無ければ行を対象に抽出します。
+      </p>
+
+      <footer>
+        株式会社コミクス ・ 議事録アクション抽出器 実装レポート（2026-09-23）
+      </footer>
+    </div>
+  </body>
+</html>
