@@ -258,256 +258,194 @@
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <header class="hero">
-        <div class="eyebrow">実装レポート ・ 2026-09-23</div>
-        <h1>議事録アクション抽出器</h1>
-        <p class="lead">
-          議事録からやるべきこと（行動候補）を拾い出し、担当と期限が書かれていないものを自動で見つける
-          Python ツールです。表形式にも対応しています。
-        </p>
-      </header>
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">実装レポート ・ 2026-09-23 更新</div>
+  <h1>議事録アクション抽出器</h1>
+  <p class="lead">議事録から「やるべきこと」を拾い出し、担当と期限が書かれていないものを自動で見つける Python ツールです。社内の議事録709件に一括適用し、抽出の精度を目視で照合しました。</p>
+</header>
 
-      <h2>何をするツールか</h2>
-      <div class="flow">
-        <span>議事録テキスト</span><b>→</b><span>行動候補を抽出</span><b>→</b
-        ><span>担当・期限を読み取り</span><b>→</b><span>欠落を判定</span>
-      </div>
-      <p>1行（または表の1行）を1件の行動として、次の項目を返します。</p>
-      <div class="tbl">
-        <table class="narrow">
-          <tr>
-            <th>項目</th>
-            <th>内容</th>
-          </tr>
-          <tr>
-            <td><code>text</code></td>
-            <td>行動の本文</td>
-          </tr>
-          <tr>
-            <td><code>owner</code></td>
-            <td>担当者（読めなければ空）</td>
-          </tr>
-          <tr>
-            <td><code>start</code> / <code>due</code></td>
-            <td>開始日・期限（ISO 形式。期間なら終了日が期限）</td>
-          </tr>
-          <tr>
-            <td><code>due_text</code></td>
-            <td>表の期限セルに書かれていた原文</td>
-          </tr>
-          <tr>
-            <td><code>missing</code></td>
-            <td>
-              欠落項目（<code>["担当"]</code>・<code>["期限"]</code>・両方）
-            </td>
-          </tr>
-          <tr>
-            <td><code>unparsed</code></td>
-            <td>期限は書いてあるが日付として読めない（例：「来週中」）</td>
-          </tr>
-        </table>
-      </div>
+<h2>何をするツールか</h2>
+<div class="flow"><span>議事録テキスト</span><b>→</b><span>行動一覧の場所を特定</span><b>→</b><span>担当・期限を読み取り</span><b>→</b><span>欠落を判定</span></div>
+<p>行動1件ごとに、次の項目を返します。</p>
+<div class="tbl"><table class="narrow">
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td><code>text</code></td><td>行動の本文</td></tr>
+<tr><td><code>owner</code></td><td>担当者（読めなければ空）</td></tr>
+<tr><td><code>start</code> / <code>due</code></td><td>開始日・期限（ISO 形式。期間なら終了日が期限）</td></tr>
+<tr><td><code>due_kind</code></td><td>期限の種類：<b>日付</b>／<b>相対表現</b>（当日中・来週中 など）／<b>記載なし</b></td></tr>
+<tr><td><code>due_text</code></td><td>期限として書かれていた原文</td></tr>
+<tr><td><code>missing</code></td><td>欠落項目（<code>["担当"]</code>・<code>["期限"]</code>・両方）</td></tr>
+</table></div>
 
-      <h2>判定ルール</h2>
-      <h3>行動とみなす行</h3>
-      <ul>
-        <li>「対応・確認・送付・作成・連絡・提出」を含む行</li>
-        <li>
-          ただし「作成者」「連絡先」「提出日」のように、直後に「者・先・日・済・不要」が続く言い方は行動として数えない
-        </li>
-        <li>
-          行内に「対応済」「確認不要」などがあれば、完了・不要とみなして行ごと除外
-        </li>
-        <li>
-          見出し行に「担当」列と「アクション／内容」列がある<b>表</b>は、行動語の有無に関係なく全行を行動とみなす
-        </li>
-      </ul>
-      <h3>担当の読み取り</h3>
-      <ul>
-        <li>
-          <code>担当：</code
-          >と<code>担当者：</code>の両方に対応。名前は読点・句点・空白（全角を含む）の手前まで
-        </li>
-        <li>
-          「未定・未割当・調整中・TBD・－・？」は、書いてあっても<b>担当なし</b>として扱う
-        </li>
-      </ul>
-      <h3>期限の読み取り</h3>
-      <ul>
-        <li>
-          <code>2026-09-30</code
-          >・<code>2026/09/30</code>・<code>2026年9月30日</code>・全角数字の
-          <code>２０２６／１０／０５</code>
-        </li>
-        <li>
-          期間
-          <code>2026/05/23～2026/09/23</code>
-          は終了日を期限とし、開始日も保持（ラベル「期間：」の有無は問わない）
-        </li>
-        <li>
-          表の <code>9/30</code>・<code>12月1日</code>
-          のような年のない日付は、会議日から年を補う（12月の会議の「1/10」は翌年）
-        </li>
-        <li>
-          日付が1つだけのときは「期限：」などのラベルが必要。本文中の関係ない日付を期限と取り違えないため
-        </li>
-        <li>
-          9月31日のような存在しない日付や、開始日が終了日より後の期間は、読めない期限（<code>unparsed</code>）として扱う
-        </li>
-      </ul>
+<h2>行動一覧の見つけ方</h2>
+<p>議事録の全文を読むと、提案内容や御礼の文面まで行動と誤認します。そこで<b>行動一覧が書かれている場所だけ</b>を読みます。次の順に試し、最初に見つかった方式を採用します。</p>
+<div class="tbl"><table>
+<tr><th>順</th><th>書き方</th><th>例</th><th>読み方</th></tr>
+<tr><td>1</td><td>表</td><td><code>| 担当 | アクション | 期限 |</code></td><td>見出し行に「担当」列と「アクション／内容」列がある表の全行</td></tr>
+<tr><td>2</td><td>見出し＋グループ</td><td>■ ネクストアクション<br>【弊社側】<br>・提案書を送付（本日中）</td><td>見出しの下から次の見出し・罫線までの箇条書き。担当はグループ見出しから引き継ぐ</td></tr>
+<tr><td>2</td><td>見出し＋項目に担当</td><td>▼ ネクストアクション<br>・[鈴木]資料を共有(当日中)<br>・鈴木：見積を送付</td><td>行頭の ［X］【X】「X：」を担当、行末の（ ）を期限として読む</td></tr>
+<tr><td>2</td><td>HTML から変換</td><td>⚡ ネクストアクション<br>さくら商会様(青木様)<br>Facebookでつながる<br>期限： 6月末まで</td><td>絵文字見出し・記号のない項目・次の行に書かれた期限にも対応</td></tr>
+</table></div>
+<p>どちらも見つからない議事録は「行動一覧なし」として一覧に出し、全文からの推測はしません。</p>
 
-      <h2>判定の例（自動テストで確認済み）</h2>
-      <div class="tbl">
-        <table>
-          <tr>
-            <th>入力</th>
-            <th>担当</th>
-            <th>期限</th>
-            <th>判定</th>
-          </tr>
-          <tr>
-            <td>研修資料を作成。担当者：鈴木章裕　2026/05/23～2026/09/23</td>
-            <td>鈴木章裕</td>
-            <td>2026-09-23（開始 05-23）</td>
-            <td class="ok">欠落なし</td>
-          </tr>
-          <tr>
-            <td>
-              報告書を提出。担当者：鈴木章裕　期間：2026/05/23～2026/09/23
-            </td>
-            <td>鈴木章裕</td>
-            <td>2026-09-23</td>
-            <td class="ok">欠落なし</td>
-          </tr>
-          <tr>
-            <td>契約書を確認。担当：山本 期限：２０２６／１０／０５</td>
-            <td>山本</td>
-            <td>2026-10-05</td>
-            <td class="ok">欠落なし</td>
-          </tr>
-          <tr>
-            <td>見積を送付。担当：高橋。期限：来週中</td>
-            <td>高橋</td>
-            <td>—</td>
-            <td class="ng">期限（記載はあるが読めない）</td>
-          </tr>
-          <tr>
-            <td>請求書を送付。担当：未定 期限：2026-10-10</td>
-            <td>—</td>
-            <td>2026-10-10</td>
-            <td class="ng">担当</td>
-          </tr>
-          <tr>
-            <td>先方に確認。担当：TBD</td>
-            <td>—</td>
-            <td>—</td>
-            <td class="ng">担当・期限</td>
-          </tr>
-          <tr>
-            <td>表：| 田中様 | 導入可否の検討 | 9/30 |</td>
-            <td>田中様</td>
-            <td>2026-09-30</td>
-            <td class="ok">欠落なし</td>
-          </tr>
-          <tr>
-            <td>表：| 鈴木 | 資料共有 | — |</td>
-            <td>鈴木</td>
-            <td>—</td>
-            <td class="ng">期限</td>
-          </tr>
-          <tr>
-            <td>議事録の作成者：伊藤</td>
-            <td colspan="3">除外（「作成者」は人を指す言葉）</td>
-          </tr>
-          <tr>
-            <td>先方への連絡は対応済み</td>
-            <td colspan="3">除外（完了済み）</td>
-          </tr>
-        </table>
-      </div>
+<h2>判定ルール</h2>
+<h3>行動から外すもの</h3>
+<ul>
+  <li>文末が「対応済み」「確認不要」「完了」の項目（もう終わっている／やらない）</li>
+  <li>ただし「<b>確認済みの</b>見積を送付」のように、完了表現が途中にあるだけなら行動として残す</li>
+  <li>「作成者」「連絡先」「提出日」のような、人や物を指す言葉</li>
+</ul>
+<h3>担当</h3>
+<ul>
+  <li><code>担当：</code>・<code>担当者：</code>、行頭の <code>[鈴木]</code>・<code>【鈴木】</code>・<code>鈴木：</code>、表の担当列、直前のグループ見出し（【弊社側】・■加藤様・村田氏側 など）</li>
+  <li>「予算検討：」「日程調整：」のような項目名は担当として読まない</li>
+  <li>「未定・TBD・調整中・要確認・－」は、書いてあっても<b>担当なし</b></li>
+</ul>
+<h3>期限（3区分）</h3>
+<ul>
+  <li><b>日付</b>：<code>2026/09/30</code>・<code>2026年9月30日</code>・全角数字・期間 <code>2026/05/23～2026/09/23</code>（終了日）・年のない <code>9/30</code> や <code>10/1〜10/15</code>（会議日から年を補い、範囲は終了日）</li>
+  <li><b>相対表現</b>：当日中・本日中・即日は<b>会議日に換算</b>して期限あり。近日中・来週中・随時・次回などは日付にできないため「期限なし」扱い（区分は相対表現として別に数える）</li>
+  <li><b>記載なし</b>：期限の手がかりが何もない</li>
+  <li>会議日は会話の作成日時を<b>日本時間</b>に直した日付（UTC のままだと朝の会議が前日になる）</li>
+</ul>
 
-      <h2>実データへの一括実行（検証の途中経過）</h2>
-      <p>
-        議事録生成用の Claude
-        プロジェクトにある全会話を回収し、この抽出器を一括で適用しました。
-      </p>
-      <div class="cards">
-        <div class="card">
-          <div class="k">回収した会話</div>
-          <div class="v">735件</div>
-          <div class="s">回収エラー 0件</div>
-        </div>
-        <div class="card">
-          <div class="k">議事録ファイルを検出</div>
-          <div class="v">719件</div>
-          <div class="s">
-            Markdown 488／HTML 211／本文 20
-          </div>
-        </div>
-        <div class="card">
-          <div class="k">御礼メールを取り違え</div>
-          <div class="v red">319件</div>
-          <div class="s">回収条件の不備（下記）</div>
-        </div>
-      </div>
-      <div class="note">
-        <strong>判明した問題：議事録の代わりに御礼メールを拾っていた</strong>
-        各会話では「議事録テキスト → HTML →
-        御礼メール」の順にファイルが作られます。回収の条件を「冒頭に"議事録"を含む最後のファイル」としていたため、本文に「議事録」を含み、しかも最後に作られる御礼メールが選ばれていました。このため、一括実行の件数（担当・期限の欠落率）は<b>まだ正しい値ではありません</b>。
-      </div>
-      <h3>わかった議事録の書き方と、次の改修</h3>
-      <ul>
-        <li>
-          アクションの書き方は3通り：①表（担当｜アクション｜期限）②「■
-          ネクストアクション」の見出しの下に【弊社側】【先方側】のグループを立てる形
-          ③「・[鈴木]資料を共有(当日中)」と担当を［］、期限を（）で書く形
-        </li>
-        <li>
-          回収をやり直す：ファイル名に「議事録」を含み「メール・御礼」を含まないものを優先し、Markdown
-          を優先する
-        </li>
-        <li>
-          抽出は「ネクストアクション」などの見出しの範囲内だけを読む（御礼メールや提案本文の誤検知を防ぐ）
-        </li>
-        <li>
-          担当は ［X］・【X】・グループ見出しの引き継ぎから、期限は行末の（
-          ）から読む
-        </li>
-        <li>
-          期限の欠落は「日付あり／相対表現あり（当日中・近日中など）／記載なし」の3区分で報告する
-        </li>
-        <li>
-          合格基準：アクション見出しの検出率と、無作為に選んだ10件の目視照合
-        </li>
-      </ul>
+<h2>実データへの一括適用</h2>
+<p>議事録生成用の Claude プロジェクトにある全会話を回収し、一括で適用しました（会議ごとの結果は取引先名を含むため社内でのみ管理）。</p>
+<div class="cards">
+  <div class="card"><div class="k">回収した会話</div><div class="v">735件</div><div class="s">回収エラー 0件</div></div>
+  <div class="card"><div class="k">議事録</div><div class="v">709件</div><div class="s">Markdown 392／HTML 307／本文 10</div></div>
+  <div class="card"><div class="k">行動一覧を検出</div><div class="v">95%</div><div class="s">672件（表 373／見出し 299）</div></div>
+  <div class="card"><div class="k">抽出した行動</div><div class="v">4,766件</div><div class="s">1議事録あたり約7.1件</div></div>
+</div>
+<div class="cards">
+  <div class="card"><div class="k">担当なし</div><div class="v red">18%</div><div class="s">861件</div></div>
+  <div class="card"><div class="k">期限：日付</div><div class="v">2%</div><div class="s">102件</div></div>
+  <div class="card"><div class="k">期限：相対表現</div><div class="v">45%</div><div class="s">2,155件（うち会議日に換算 703件）</div></div>
+  <div class="card"><div class="k">期限：記載なし</div><div class="v red">53%</div><div class="s">2,509件</div></div>
+</div>
+<div class="note">
+  <strong>わかったこと</strong>
+  議事録の期限は、大半が「当日中」「近日中」「随時」などの相対表現か、書かれていないかのどちらかで、日付で書かれているのは2%にとどまります。相対表現の上位は 「当日中」421件・「近日中」277件・「本日中」151件・「随時」100件・「継続」70件 でした。担当と期限がそろった行動は744件（16%）です。
+</div>
 
-      <h2>ソースコード</h2>
-      <details>
-        <summary>
-          action_extractor.py（196行・標準ライブラリのみ）を開く
-        </summary>
-        <pre><code>&quot;&quot;&quot;議事録から行動候補を抽出し、担当・期限の欠落を検知する。&quot;&quot;&quot;
+<h3>精度の照合（無作為10件・原文との突き合わせ）</h3>
+<p>
+  無作為に選んだ議事録10件の原文を別のエージェントが読み、行動一覧の正解を数えて抽出結果と1件ずつ突き合わせました（抽出器を作った本人は採点していません）。照合のたびに見つかった誤りの型を直し、重ならない新しい10件で次の照合を行っています。「完全一致」は、行動の本文・担当・期限の3つがすべて正しいものです。
+</p>
+<div class="tbl">
+  <table>
+    <tr>
+      <th>回</th>
+      <th>原文の行動</th>
+      <th>完全一致</th>
+      <th>表の書式</th>
+      <th>見出しの書式</th>
+      <th>主な誤り → 直した内容</th>
+    </tr>
+    <tr>
+      <td>1回目</td>
+      <td>70件</td>
+      <td>46件（66%）</td>
+      <td class="ok">32/32（100%）</td>
+      <td class="ng">14/38（37%）</td>
+      <td>
+        2つ目の担当グループを認識しない・「担当: ○○」の別行書式で取りこぼし →
+        グループ見出しとラベル行に対応
+      </td>
+    </tr>
+    <tr>
+      <td>2回目</td>
+      <td>62件</td>
+      <td>39件（63%）</td>
+      <td class="ok">32/32（100%）</td>
+      <td class="ng">7/30（23%）</td>
+      <td>
+        「###
+        ○○(前田様)」の担当小見出しで範囲を閉じていた・担当見出しのあいだの表を見逃し
+        → 小見出しを担当として引き継ぐ
+      </td>
+    </tr>
+    <tr>
+      <td>3回目</td>
+      <td>68件</td>
+      <td><b>53件（78%）</b></td>
+      <td class="ok">32/35（91%）</td>
+      <td>21/33（64%）</td>
+      <td>
+        「短期アクション」など別節への越境・次行の「即日対応」・完了の表記ゆれ →
+        見出し判定と完了判定を修正
+      </td>
+    </tr>
+  </table>
+</div>
+<ul>
+  <li>
+    <b>表で書かれた議事録は安定して高精度</b>です（3回の合計で 96/99
+    件が完全一致）。誤りは「〜2026年11月頃」を相対表現とした境界的なものだけでした。
+  </li>
+  <li>
+    <b>見出し・箇条書きの議事録は書き方の揺れが大きく</b
+    >、照合のたびに新しい型が見つかりました。3回目の修正後に、照合で正解を数えた20件と抽出件数を比べると
+    <b>15/20 件で一致</b
+    >しています（件数のみの確認で、担当・期限まで含めた再照合はしていません）。
+  </li>
+  <li>
+    残っている既知の弱点：行動一覧の中の絵文字付き小見出し（例「🤖
+    システム自動化」）を1件の行動として数えることがある／ある行動の内訳の箇条書きを別々の行動として数える／「〜年月頃」を日付でなく相対表現に分類する。
+  </li>
+</ul>
+
+
+<h3>これまでの修正の経緯</h3>
+<ul>
+  <li><b>回収の取り違え</b>：最初の回収では、議事録ではなく御礼メールを319件拾っていました。ファイル名に「議事録」を含み、「メール・御礼」を含まないものを優先する条件に直し、再回収後の混入は0件です。</li>
+  <li><b>全文走査の誤検知</b>：当初は全行から行動語を探していたため、提案内容や御礼文を行動と誤認していました。行動一覧の範囲だけを読む方式に変えました（行動一覧を検出できた議事録は95%）。</li>
+  <li><b>書式の追加対応</b>：照合で見つかった書式（縦並び・担当ラベル行・担当小見出し配下の表・「○○のアクション」・完了の表記ゆれ など）を、匿名化したうえで内蔵テストに加えています。</li>
+</ul>
+
+<h2>ソースコード</h2>
+<details>
+  <summary>action_extractor.py（749行・標準ライブラリのみ）を開く</summary>
+<pre><code>&quot;&quot;&quot;議事録から行動候補を抽出し、担当・期限の欠落を検知する。
+
+対応する書き方（extract_all が上から順に試す）:
+  1. 表     | 担当 | アクション | 期限 |
+  2. 見出し ■ ネクストアクション → 【弊社側】→ ・[鈴木]資料を送付（当日中）
+  3. 行     資料を送付。担当：鈴木 期限：2026-09-30（extract_candidates を直接呼ぶ場合）
+&quot;&quot;&quot;
 import re
 from datetime import date
 
 ACTION_WORDS = (&quot;対応&quot;, &quot;確認&quot;, &quot;送付&quot;, &quot;作成&quot;, &quot;連絡&quot;, &quot;提出&quot;)
 # 完了済み・不要・名詞用法（作成者／連絡先／提出日 等）は行動とみなさない
 ACTION = re.compile(&quot;(?:&quot; + &quot;|&quot;.join(ACTION_WORDS) + &quot;)(?!済|不要|者|先|日)&quot;)
-# 「連絡は対応済み」のように、行内に完了・不要の表現があれば行ごと除外
-DONE = re.compile(&quot;(?:&quot; + &quot;|&quot;.join(ACTION_WORDS) + &quot;)(?:済|不要)&quot;)
+DONE = re.compile(&quot;(?:&quot; + &quot;|&quot;.join(ACTION_WORDS) + r&quot;)(?:済み?|不要)|完了|(?&lt;![決返経救])済み?&quot;)
+# 完了・不要の表現が文末にあれば、その行の述語は完了済み（「連絡は対応済み」）
+DONE_AT_END = re.compile(r&quot;[\s。．.、）)]*$&quot;)
 # 「担当：」「担当者：」の両方。名前は読点・句点・空白（全角含む）の手前まで
-OWNER = re.compile(r&quot;担当者?\s*[:：]\s*([^、,，。\s]+)&quot;)
+OWNER = re.compile(r&quot;担当者?\s*[:：]\s*([^、,，。\s()（）]+)&quot;)
 # 担当欄が埋まっていても実質未決のもの
-OWNER_PLACEHOLDERS = {&quot;未定&quot;, &quot;未割当&quot;, &quot;未割り当て&quot;, &quot;調整中&quot;, &quot;TBD&quot;, &quot;tbd&quot;, &quot;-&quot;, &quot;－&quot;, &quot;ー&quot;, &quot;?&quot;, &quot;？&quot;}
+OWNER_PLACEHOLDERS = {&quot;未定&quot;, &quot;未割当&quot;, &quot;未割り当て&quot;, &quot;調整中&quot;, &quot;TBD&quot;, &quot;tbd&quot;, &quot;-&quot;, &quot;－&quot;, &quot;ー&quot;, &quot;—&quot;, &quot;―&quot;, &quot;?&quot;, &quot;？&quot;, &quot;要確認&quot;}
+EMPTY_CELL = {&quot;&quot;, &quot;-&quot;, &quot;－&quot;, &quot;ー&quot;, &quot;—&quot;, &quot;―&quot;, &quot;なし&quot;, &quot;TBD&quot;, &quot;tbd&quot;, &quot;未定&quot;, &quot;要確認&quot;, &quot;調整中&quot;, &quot;期限なし&quot;}
+
 # 2026-09-30 / 2026/09/30 / 2026年9月30日（全角数字も可）
 DATE = r&quot;(\d{4})\s*[/／\-－年.]\s*(\d{1,2})\s*[/／\-－月.]\s*(\d{1,2})日?&quot;
+# 年なしの日付（9/30・9月30日）。年は会議日から補う
+MD = r&quot;(?&lt;![\d/／])(\d{1,2})\s*[/／月]\s*(\d{1,2})日?(?![\d/／])&quot;
 RANGE_SEP = r&quot;\s*[～〜~]\s*&quot;
-# 期間：開始～終了（ラベル省略可）→ 終了日を期限とみなす
-RANGE = re.compile(r&quot;(?:(?:期限|期間|納期)\s*[:：]\s*)?&quot; + DATE + RANGE_SEP + DATE)
-# 期限：日付（単一日付はラベル必須＝本文中の無関係な日付を拾わない）
-SINGLE = re.compile(r&quot;(?:期限|期間|納期)\s*[:：]\s*&quot; + DATE)
-DUE_LABEL = re.compile(r&quot;(?:期限|期間|納期)\s*[:：]&quot;)
+FULL_RANGE = re.compile(DATE + RANGE_SEP + DATE)
+FULL_DATE = re.compile(DATE)
+MD_RANGE = re.compile(MD + RANGE_SEP + r&quot;(?:(\d{1,2})\s*[/／月]\s*)?(\d{1,2})日?&quot;)
+MD_DATE = re.compile(MD)
+DUE_LABEL = re.compile(r&quot;(?:期限|期間|納期|期日)\s*[:：]\s*([^\s、,，。|]*)&quot;)
+# 会議日に換算できる相対表現／換算できない相対表現
+SAME_DAY = re.compile(r&quot;当日|本日|即日|今日中&quot;)
+# 「12月中」「1月初旬」のように月の付いた相対表現（due_text に月まで残すため）
+MONTH_REL = re.compile(r&quot;\d{1,2}月(?:中|末|内|上旬|中旬|下旬|初旬|頃|ごろ|以降)&quot;)
+RELATIVE = re.compile(r&quot;近日|今週|来週|翌週|再来週|今月|来月|月内|月末|月中|週内|週末|年内|中旬|上旬|下旬|初旬|以内|次回|後日|&quot;
+                      r&quot;随時|早急|至急|速やか|すみやか|早め|早期|追って|別途|継続|定期|毎週|毎月|明日|翌日|明後日|翌営業日|&quot;
+                      r&quot;即座|即時|直後|要調整|適宜|までに|後$|以降|以後|頃|ごろ|今後&quot;)
 
 
 def _to_date(y, m, d):
@@ -517,51 +455,107 @@ def _to_date(y, m, d):
         return None
 
 
-def _parse_due(line):
-    &quot;&quot;&quot;(start, due, unparsed) を返す。期限らしき記載があるのに読めなければ unparsed=True。&quot;&quot;&quot;
-    m = RANGE.search(line)
+def _with_year(m, d, base):
+    &quot;&quot;&quot;年なしの月日に会議日の年を補う（12月の会議で「1/10」→翌年）。&quot;&quot;&quot;
+    if not base:
+        return None
+    due = _to_date(base.year, m, d)
+    if due and (base - due).days &gt; 180:
+        due = _to_date(base.year + 1, m, d)
+    return due
+
+
+def parse_due_text(text, base=None):
+    &quot;&quot;&quot;期限の記載 → {start, due, kind, due_text}。
+
+    kind: &quot;date&quot;（日付で読めた）／&quot;relative&quot;（当日中・来週中 などの相対表現）／&quot;none&quot;（記載なし）。
+    相対表現のうち当日中・本日中・即日は会議日に換算して due に入れる。
+    &quot;&quot;&quot;
+    text = (text or &quot;&quot;).strip()
+    out = {&quot;start&quot;: None, &quot;due&quot;: None, &quot;kind&quot;: &quot;none&quot;, &quot;due_text&quot;: text or None}
+    if text in EMPTY_CELL:
+        return out
+    m = FULL_RANGE.search(text)
     if m:
         start, end = _to_date(*m.group(1, 2, 3)), _to_date(*m.group(4, 5, 6))
         if start and end and start &lt;= end:
-            return start, end, False
-        return None, None, True
-    m = SINGLE.search(line)
+            return {**out, &quot;start&quot;: start, &quot;due&quot;: end, &quot;kind&quot;: &quot;date&quot;}
+        return {**out, &quot;kind&quot;: &quot;relative&quot;}  # 存在しない日付・逆転した期間は読めない記載として扱う
+    m = FULL_DATE.search(text)
     if m:
-        due = _to_date(*m.group(1, 2, 3))
-        return None, due, due is None
-    return None, None, bool(DUE_LABEL.search(line))
+        due = _to_date(*m.groups())
+        return {**out, &quot;due&quot;: due, &quot;kind&quot;: &quot;date&quot; if due else &quot;relative&quot;}
+    m = MD_RANGE.search(text)
+    if m and base:
+        m1, d1, m2, d2 = m.groups()
+        start, end = _with_year(m1, d1, base), _with_year(m2 or m1, d2, base)
+        if start and end and end &lt; start:
+            end = _to_date(end.year + 1, end.month, end.day)
+        if start and end:
+            return {**out, &quot;start&quot;: start, &quot;due&quot;: end, &quot;kind&quot;: &quot;date&quot;}
+    m = MD_DATE.search(text)
+    if m and base:
+        due = _with_year(*m.groups(), base)
+        if due:
+            return {**out, &quot;due&quot;: due, &quot;kind&quot;: &quot;date&quot;}
+    if SAME_DAY.search(text):
+        return {**out, &quot;due&quot;: base, &quot;kind&quot;: &quot;relative&quot;}
+    return {**out, &quot;kind&quot;: &quot;relative&quot;}
 
 
-def extract_candidates(minutes):
+def _is_done(text):
+    &quot;&quot;&quot;完了・不要の表現が文頭（「完了 - 資料送付」）か文末にある（＝もう終わっている／やらない）。
+
+    文末の括弧が「（完了）」なら完了、「（友達申請完了済）」のように内訳の説明なら本体は未完了とみなす。
+    &quot;&quot;&quot;
+    text = text.strip()
+    if re.match(r&quot;^(?:完了済み?|完了|済み?|対応済み?)\s*[-－–—:：]&quot;, text):
+        return True
+    paren = re.search(r&quot;[（(]([^（）()]*)[)）]\s*[。．.]?$&quot;, text)
+    if paren and not FINISHED.match(paren.group(1).strip()):
+        text = text[:paren.start()]
+    return any(DONE_AT_END.fullmatch(text, m.end()) for m in DONE.finditer(text))
+
+
+def _is_action(text):
+    &quot;&quot;&quot;完了済みの修飾（「確認済みの見積を送付」）を除いた残りに行動語があるか。&quot;&quot;&quot;
+    return not _is_done(text) and bool(ACTION.search(DONE.sub(&quot;&quot;, text)))
+
+
+def _row(line, text, owner, due_info):
+    owner = None if not owner or owner in OWNER_PLACEHOLDERS else owner
+    due = due_info[&quot;due&quot;]
+    missing = ([] if owner else [&quot;担当&quot;]) + ([] if due else [&quot;期限&quot;])
+    return {&quot;line&quot;: line, &quot;text&quot;: text, &quot;owner&quot;: owner,
+            &quot;start&quot;: due_info[&quot;start&quot;].isoformat() if due_info[&quot;start&quot;] else None,
+            &quot;due&quot;: due.isoformat() if due else None,
+            &quot;due_text&quot;: due_info[&quot;due_text&quot;], &quot;due_kind&quot;: due_info[&quot;kind&quot;],
+            &quot;missing&quot;: missing, &quot;unparsed&quot;: due_info[&quot;kind&quot;] == &quot;relative&quot; and not due}
+
+
+# ---- 3. 行ベース（担当：／期限： のラベル付き） ----
+def extract_candidates(minutes, base=None):
     results = []
     for number, line in enumerate(minutes.splitlines(), 1):
-        if not ACTION.search(line) or DONE.search(line):
+        if not _is_action(line):
             continue
         owner = OWNER.search(line)
-        if owner and owner.group(1) in OWNER_PLACEHOLDERS:
-            owner = None
-        start, due, unparsed = _parse_due(line)
-        missing = []
-        if not owner:
-            missing.append(&quot;担当&quot;)
-        if not due:
-            missing.append(&quot;期限&quot;)
-        results.append({&quot;line&quot;: number, &quot;text&quot;: line.strip(),
-                        &quot;owner&quot;: owner.group(1) if owner else None,
-                        &quot;start&quot;: start.isoformat() if start else None,
-                        &quot;due&quot;: due.isoformat() if due else None,
-                        &quot;missing&quot;: missing,
-                        &quot;unparsed&quot;: unparsed})
+        rng = FULL_RANGE.search(line)  # 期間はラベルなしでも可
+        label = DUE_LABEL.search(line)
+        if rng:
+            due_info = parse_due_text(rng.group(0), base)
+        elif label:
+            due_info = parse_due_text(label.group(1) or &quot;?&quot;, base)
+        else:
+            due_info = parse_due_text(&quot;&quot;, base)
+        results.append(_row(number, line.strip(), owner.group(1) if owner else None, due_info))
     return results
 
 
-# ---- 表形式（| 担当 | アクション | 期限 | ...）のアクション表 ----
-OWNER_COL = re.compile(r&quot;担当|誰が|責任者&quot;)
-TASK_COL = re.compile(r&quot;アクション|タスク|内容|項目|やること|対応事項&quot;)
+# ---- 1. 表形式 ----
+OWNER_COL = re.compile(r&quot;担当|誰が|責任者|主体&quot;)
+TASK_COL = re.compile(r&quot;アクション|タスク|内容|項目|やること|対応事項|ToDo|TODO&quot;)
 DUE_COL = re.compile(r&quot;期限|期日|納期|いつまで|時期&quot;)
-# 年なしの日付（9/30・9月30日）。年は会議日から補う
-MONTH_DAY = re.compile(r&quot;(?&lt;!\d)(\d{1,2})\s*[/／月]\s*(\d{1,2})日?(?!\d)&quot;)
-EMPTY_CELL = {&quot;&quot;, &quot;-&quot;, &quot;－&quot;, &quot;ー&quot;, &quot;—&quot;, &quot;―&quot;, &quot;なし&quot;, &quot;TBD&quot;, &quot;tbd&quot;, &quot;未定&quot;, &quot;要確認&quot;, &quot;調整中&quot;, &quot;期限なし&quot;}
 
 
 def _cells(line):
@@ -572,30 +566,54 @@ def _is_separator(line):
     return bool(re.fullmatch(r&quot;\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?&quot;, line.strip()))
 
 
-def _parse_due_cell(cell, base):
-    &quot;&quot;&quot;表の期限セル → (start, due, unparsed)。日付でない記載（当日中・来週 等）は unparsed。&quot;&quot;&quot;
-    if cell in EMPTY_CELL:
-        return None, None, False
-    start, due, unparsed = _parse_due(&quot;期限：&quot; + cell)
-    if due:
-        return start, due, False
-    m = MONTH_DAY.search(cell)
-    if m and base:
-        due = _to_date(base.year, *m.groups())
-        if due and (base - due).days &gt; 180:  # 12月の会議で「1/10」→翌年
-            due = _to_date(base.year + 1, *m.groups())
-        if due:
-            return None, due, False
-    return None, None, True
+def _heading_level(s):
+    &quot;&quot;&quot;見出し行ならその階層（# の数／■=2／▼・【】・絵文字=3）、見出しでなければ None。&quot;&quot;&quot;
+    m = re.match(r&quot;^(#{1,6})\s&quot;, s)
+    if m:
+        return len(m.group(1))
+    if s.startswith(&quot;■&quot;):
+        return 2
+    if re.match(r&quot;^[▼▽●◆◇▶►【]&quot;, s) or (EMOJI.match(s) and len(s) &lt;= 30):
+        return 3
+    return None
+
+
+def _heading_owner(s):
+    &quot;&quot;&quot;「### コミクス（鈴木）担当」「▼ 田中様側」→ 担当名。担当を表さない見出しなら None。&quot;&quot;&quot;
+    name = re.sub(r&quot;^(#{1,6}\s*|[■▼▽●◆◇▶►]\s*)&quot;, &quot;&quot;, EMOJI.sub(&quot;&quot;, s)).strip(&quot; 【】[]：:&quot;)
+    m = GROUP_SUFFIX.match(name)
+    if m:
+        return _clean_owner(m.group(1))
+    if re.fullmatch(r&quot;(両社|双方|両者)(共同|共通)?&quot;, name) or (GROUP_TAIL.search(name) and not ACTION.search(name)):
+        return _clean_owner(re.sub(r&quot;[:：]$&quot;, &quot;&quot;, name))
+    return None
 
 
 def extract_from_tables(minutes, base=None):
-    &quot;&quot;&quot;見出し行に「担当」列と「アクション／内容」列を持つ表の全行を行動として扱う。&quot;&quot;&quot;
+    &quot;&quot;&quot;アクション表の全行を行動として扱う。
+
+    採用する表: 見出し行に「担当」列と「アクション／内容」列がある表。
+    または、ネクストアクション見出しの配下にあり「アクション」列と「期限」列がある表
+    （担当は「### コミクス（鈴木）担当」のような直前の小見出しから引き継ぐ）。
+    &quot;&quot;&quot;
     results, header = [], None
+    in_action, action_level, ctx_owner = False, 0, None
     lines = minutes.splitlines()
     for number, line in enumerate(lines, 1):
         if not line.strip().startswith(&quot;|&quot;):
             header = None
+            s = line.strip()
+            level = _heading_level(s) if s else None
+            if level is not None:
+                owner = _heading_owner(s)
+                if ACTION_HEAD.search(s) and not owner:
+                    in_action, action_level, ctx_owner = True, level, None
+                elif in_action and owner:  # 【内田様側】・### 鈴木（コミクス）担当 は範囲内の担当見出し
+                    ctx_owner = owner
+                elif in_action and level &lt;= action_level:
+                    in_action, ctx_owner = False, None
+                elif in_action:
+                    ctx_owner = None
             continue
         if _is_separator(line):
             continue
@@ -608,32 +626,259 @@ def extract_from_tables(minutes, base=None):
                     if cols[key] is None and pat.search(c):
                         cols[key] = i
                         break
-            is_header = cols[&quot;owner&quot;] is not None and cols[&quot;task&quot;] is not None
+            is_header = cols[&quot;task&quot;] is not None and (
+                cols[&quot;owner&quot;] is not None or (in_action and cols[&quot;due&quot;] is not None))
             if _is_separator(nxt) or is_header:
                 header = cols if is_header else None
                 continue
-        if header is None or DONE.search(line):
+        if header is None:
             continue
         get = lambda k: cells[header[k]] if header[k] is not None and header[k] &lt; len(cells) else &quot;&quot;
-        owner = get(&quot;owner&quot;)
-        owner = None if owner in EMPTY_CELL or owner in OWNER_PLACEHOLDERS else owner
-        due_text = get(&quot;due&quot;)
-        start, due, unparsed = _parse_due_cell(due_text, base)
-        missing = ([] if owner else [&quot;担当&quot;]) + ([] if due else [&quot;期限&quot;])
-        results.append({&quot;line&quot;: number, &quot;text&quot;: get(&quot;task&quot;) or line.strip(),
-                        &quot;owner&quot;: owner, &quot;start&quot;: start.isoformat() if start else None,
-                        &quot;due&quot;: due.isoformat() if due else None, &quot;due_text&quot;: due_text or None,
-                        &quot;missing&quot;: missing, &quot;unparsed&quot;: unparsed})
+        task, due_text = re.sub(r&quot;\*\*|__&quot;, &quot;&quot;, get(&quot;task&quot;)).strip(), get(&quot;due&quot;)
+        if not task or _is_done(task) or due_text.startswith(&quot;完了&quot;):
+            continue
+        owner = get(&quot;owner&quot;) if header[&quot;owner&quot;] is not None else ctx_owner
+        results.append(_row(number, task, owner or None, parse_due_text(due_text, base)))
     return results
 
 
+# ---- 2. 見出し範囲（■ ネクストアクション の下の箇条書き） ----
+# 「アクション」単独は見出しがそれだけのときに限る（「短期アクション（1週間以内）」のような別節の小見出しを除く）
+ACTION_HEAD = re.compile(r&quot;ネクストアクション|次のアクション|次回アクション|今後のアクション|アクションアイテム|アクションプラン|&quot;
+                         r&quot;^[\W\d_]*アクション\s*[（(]?[^）)]{0,12}[)）]?\s*[:：]?$|&quot;
+                         r&quot;ToDo|TODO|To ?Do|宿題|今後の対応|今後の進め方|次のステップ|ネクストステップ|Next ?Action|対応事項|タスク&quot;, re.I)
+# 「-」は後ろに空白があるときだけ箇条書き（「---」の罫線と区別）。□ はチェックボックス式の箇条書き
+BULLET = re.compile(r&quot;^\s*(?:- \[[ xX]\]|-\s|[・\*•○◦▪☐□✓✔→◎]|\d{1,2}[\.．、)）]|[（(]\d{1,2}[)）]|[①-⑳])\s*(.+)$&quot;)
+SECTION_END = re.compile(r&quot;^\s*(?:#{1,6}\s|■|[─━═＝=\-_]{3,})&quot;)
+SUBHEAD = re.compile(r&quot;^\s*[▼▽●◆◇▶►]\s*(.+?)\s*$&quot;)
+GROUP = re.compile(r&quot;^\s*[【\[［&lt;＜〈]\s*(.{1,20}?)\s*[】\]］&gt;＞〉]\s*[:：]?\s*$|^\s*([^\s・\-*]{1,15}?)\s*[:：]\s*$&quot;)
+ITEM_OWNER = re.compile(r&quot;^[【\[［〈]\s*([^】\]］〉]{1,20}?)\s*[】\]］〉]\s*|^([^\s:：、。（(]{1,12})\s*[:：]\s*&quot;)
+TRAIL_PAREN = re.compile(r&quot;[（(]([^（）()]{1,30})[)）]\s*[。．.]?\s*$&quot;)
+OWNERISH = re.compile(r&quot;側|様|さん|氏|弊社|当社|御社|貴社|先方|両者|双方|全員|コミクス|チーム|部$&quot;)
+TOPIC_WORD = re.compile(r&quot;調整|確認|検討|共有|日程|資料|予算|目的|内容|方法|効果|期間|範囲|次回|会場|準備|連絡|報告|提案|契約|見積|&quot;
+                        r&quot;事項|決定|課題|概要|要約|議論|背景|費用|料金|詳細|補足|備考|結論|方針|計画|戦略|施策|導入|実施&quot;)
+NOT_OWNER = re.compile(r&quot;期限|期日|期間|納期|担当|目的|内容|備考|方法|理由|背景|補足|※&quot;)
+
+
+def _is_heading(line):
+    s = line.strip()
+    return bool(s) and len(s) &lt;= 40 and not BULLET.match(line) and bool(ACTION_HEAD.search(s))
+
+
+def _clean_owner(name):
+    name = re.sub(r&quot;側$&quot;, &quot;&quot;, name.strip())
+    return name or None
+
+
+def _item(text, group_owner, base):
+    owner = None
+    m = ITEM_OWNER.match(text)
+    if m and m.group(2) and not (GROUP_TAIL.search(m.group(2)) or
+                                 (len(m.group(2)) &lt;= 3 and not TOPIC_WORD.search(m.group(2)))):
+        m = None  # 「予算検討：」「日程調整：」は項目名であって担当者ではない
+    if m and not NOT_OWNER.search(m.group(0)):
+        owner = _clean_owner(m.group(1) or m.group(2))
+        text = text[m.end():]
+    inline = OWNER.search(text)
+    if not owner and inline:
+        owner = inline.group(1)
+    owner = owner or group_owner
+    due_info = None
+    paren = TRAIL_PAREN.search(text)
+    if paren:
+        info = parse_due_text(paren.group(1), base)
+        if info[&quot;kind&quot;] == &quot;date&quot; or SAME_DAY.search(paren.group(1)) or RELATIVE.search(paren.group(1)):
+            due_info = info
+    if not due_info:
+        label = DUE_LABEL.search(text)
+        if label:
+            due_info = parse_due_text(label.group(1) or &quot;?&quot;, base)
+    if not due_info:
+        info = parse_due_text(text, base)
+        dated = info[&quot;kind&quot;] == &quot;date&quot;
+        rel = SAME_DAY.search(text) or RELATIVE.search(text)
+        if dated or rel:
+            info[&quot;due_text&quot;] = (FULL_RANGE.search(text) or FULL_DATE.search(text) or MD_DATE.search(text)
+                                or MONTH_REL.search(text) or rel).group(0)
+            due_info = info
+        else:
+            due_info = parse_due_text(&quot;&quot;, base)
+    return owner, due_info
+
+
+# HTML 由来の議事録: 絵文字見出し・記号なしの項目・「・」と本文の改行分離がある
+EMOJI = re.compile(r&quot;^[\U0001F000-\U0001FFFF☀-➿⬀-⯿️‍\s]+&quot;)
+# 行末が担当者らしい語で終わる短い行＝グループ見出し（「さくら商会様(青木様)」「村田氏側」「中村氏：」「コミクス(鈴木)」）
+GROUP_TAIL = re.compile(r&quot;(?:(?:側|様|氏|さん|殿|弊社|当社|御社|貴社|先方|両者|双方|全員|コミクス|チーム)&quot;
+                        r&quot;\s*(?:[（(][^）)]{0,30}[)）])?&quot;
+                        r&quot;|[（(][^）)]{0,20}(?:様|氏|さん|側)[)）])\s*[:：]?$&quot;)  # 「〇〇教室（佐野氏）」
+# 「コミクス（鈴木氏）の担当事項」「### 田中様 担当」
+GROUP_SUFFIX = re.compile(r&quot;^(?!今後|次回|次の|ネクスト|全体|その他|共通)(.{1,25}?)\s*&quot;
+                          r&quot;(?:(?:の|側の)?\s*(?:担当事項|担当分|担当)|(?:の|側の)\s*(?:アクション|タスク|対応事項|対応|ToDo))\s*[:：]?$&quot;)
+# 署名・問い合わせ先（行動一覧の後ろに続くことが多い）＝範囲の終わり
+CONTACT = re.compile(r&quot;https?://|@[\w.-]+\.\w|お問い合わせ|作成いたしました|ご不明点|お気軽に|Tel[:：]|TEL[:：]&quot;)
+# 担当・行動・期限を1行ずつ縦に並べる書式の「担当だけの行」
+NAME_ONLY = re.compile(r&quot;^(?:[一-龥々]{1,4}|.{1,10}(?:様|氏|さん)|双方|両者|両社|弊社|当社|先方|全員|コミクス)$&quot;)
+# 項目の補足行（項目にも範囲の終わりにもしない）
+NOTE_LABEL = re.compile(r&quot;^(?:詳細|備考|補足|目的|内容|方法|理由|背景|注記|注意|参加者|ステータス|状態|優先度|進捗|メモ|※)\s*[:：]&quot;)
+FINISHED = re.compile(r&quot;^(?:完了|完了済み?|対応済み?|済み?)$&quot;)
+# 範囲内に現れたら別の節に移ったとみなす見出し語
+OTHER_HEAD = re.compile(r&quot;特記事項|作成日|作成者|連絡体制|お問い合わせ|署名|今後の展望|期待効果|効果|参加者|概要|サマリー|要約|議論|討議|決定事項|合意事項|課題|費用|料金|&quot;
+                        r&quot;スケジュール|重要ポイント|ポイント|備考|補足|詳細|背景|提案内容|所感|考察|リスク|まとめ|メモ|要確認|&quot;
+                        r&quot;基本情報|会議情報|次回予定|次回会議|添付|関連資料|懸念&quot;)
+# 絵文字・記号付きの見出しのときだけ別節とみなす語（項目本文にも出る語なので記号なしの行には適用しない）
+INFO_HEAD = re.compile(r&quot;会食|イベント|情報|案内|料金|価格|実績|事例|紹介|について|カレンダー&quot;)
+LABELED_ITEM = re.compile(r&quot;^(期限|期日|納期|担当者?|優先度|優先)\s*[:：]\s*([^-－–—]{1,15}?)\s+[-－–—]\s*(.{2,})$&quot;)
+LEAD_LABEL = re.compile(r&quot;^(期限|期日|納期|担当者?)\s*[:：]\s*(.*)$&quot;)
+
+
+def _merge_lone_bullets(lines):
+    &quot;&quot;&quot;「・」だけの行と次の行を1行にまとめる（HTML の li 変換で分かれるため）。行番号は後ろの行に合わせる。&quot;&quot;&quot;
+    out, pending = [], None
+    for number, line in enumerate(lines, 1):
+        s = line.strip()
+        if re.fullmatch(r&quot;[・\-\*•●○◦▪]&quot;, s):
+            pending = s
+            continue
+        if pending and s:
+            line, pending = pending + line.strip(), None
+        out.append((number, line))
+    return out
+
+
+def extract_from_sections(minutes, base=None):
+    results, seen = [], set()
+    in_section, group, has_body = False, None, False
+    # last=直前の項目 / fresh=直前に処理した行がその項目（補足行は挟んでよい） / pending=次の項目に付ける担当
+    last, last_fresh, pending = None, False, None
+    for number, line in _merge_lone_bullets(minutes.splitlines()):
+        s = EMOJI.sub(&quot;&quot;, line.strip())
+        if not s:
+            continue
+        fresh, last_fresh = last_fresh, False
+        if in_section and not BULLET.match(s):
+            raw = line.strip()
+            if GROUP_SUFFIX.match(re.sub(r&quot;^[■▼▽●◆◇▶►#\s]+&quot;, &quot;&quot;, s)) or _heading_level(raw) is not None:
+                owner = _heading_owner(raw)
+                if owner:  # 「コミクス（鈴木氏）の担当事項」「### 〇〇(前田様)」「鈴木氏のアクション」
+                    group, pending, has_body = owner, None, True
+                    continue
+            if CONTACT.search(s):
+                in_section = False  # 署名・問い合わせ先
+                continue
+        if _is_heading(s):
+            in_section, group, has_body, last, pending = True, None, False, None, None
+            continue
+        if not in_section or s.startswith(&quot;|&quot;):
+            continue  # 表は extract_from_tables が扱う
+        boxed = re.match(r&quot;^■\s*(.{1,30})$&quot;, s)
+        if boxed and GROUP_TAIL.search(boxed.group(1)):  # 「■加藤様」＝範囲内の担当グループ
+            group, pending, has_body = _clean_owner(re.sub(r&quot;[:：]$&quot;, &quot;&quot;, boxed.group(1))), None, True
+            continue
+        if SECTION_END.match(line) and not BULLET.match(line):
+            # 見出し直後の飾り罫線（■ 見出し／────）は範囲の終わりではない
+            in_section = not has_body
+            continue
+        has_body = True
+        b = BULLET.match(s)
+        body = b.group(1).strip() if b else s  # 「・担当者: 吉田氏」のように箇条書きに入ったラベル行も同じに扱う
+        lab = LABELED_ITEM.match(body)
+        if lab:  # 「期限：1週間以内 - サービス導入の検討」「優先度：高 - 所長への報告」＝ラベル付きの項目
+            label, value, text = lab.groups()
+            owner, due_info = _item(text, pending or group, base)
+            if label.startswith(&quot;担当&quot;):
+                owner = value.strip()
+            elif label[0] in &quot;期納&quot;:
+                due_info = parse_due_text(value, base)
+            pending = None
+            last = _row(number, text.strip(), owner, due_info)
+            results.append(last)
+            last_fresh = True
+            continue
+        if NOTE_LABEL.match(body):
+            last_fresh = fresh  # 「詳細：…」は補足。直前の項目との隣接は保つ
+            continue
+        lead = LEAD_LABEL.match(body)
+        if lead:
+            label, value = lead.group(1), lead.group(2).strip()
+            if label.startswith(&quot;担当&quot;):
+                if last is not None and fresh and not last[&quot;owner&quot;]:  # 項目の次の行の「担当：」
+                    last.update(_row(last[&quot;line&quot;], last[&quot;text&quot;], value, _due_of(last)))
+                    last_fresh = True
+                else:  # 項目の前に置かれた「担当：」は次の項目に付ける
+                    pending = value or None
+            elif last is not None and last[&quot;due_kind&quot;] == &quot;none&quot;:
+                last.update(_row(last[&quot;line&quot;], last[&quot;text&quot;], last[&quot;owner&quot;], parse_due_text(value, base)))
+                last_fresh = fresh
+            continue
+        # 担当・行動・期限を1行ずつ縦に並べる書式（鈴木／資料を共有／本日中／✅ 完了済）
+        if last is not None and fresh and not BULLET.match(s):
+            if FINISHED.match(s):
+                results.remove(last)
+                last = None
+                continue
+            timing_first = re.match(r&quot;^(?:即日|即座|即時|当日|本日|今週|来週|近日|随時|早急|至急)&quot;, s)
+            if len(s) &lt;= 15 and (timing_first or not ACTION.search(s)) and last[&quot;due_kind&quot;] == &quot;none&quot;:
+                info = parse_due_text(s, base)
+                if info[&quot;kind&quot;] == &quot;date&quot; or SAME_DAY.search(s) or RELATIVE.search(s):
+                    last.update(_row(last[&quot;line&quot;], last[&quot;text&quot;], last[&quot;owner&quot;], info))
+                    last_fresh = True
+                    continue
+        if NAME_ONLY.match(s) and not TOPIC_WORD.search(s) and not ACTION.search(s):
+            pending = _clean_owner(s)
+            continue
+        g = GROUP.match(s)
+        if g:
+            name = g.group(1) or g.group(2)
+            if g.group(2) and not (GROUP_TAIL.search(name) or (NAME_ONLY.match(name) and not TOPIC_WORD.search(name))):
+                in_section = False  # 「決定事項：」「特記事項：」など担当でない見出し＝別の節
+                continue
+            group, pending = _clean_owner(name), None
+            continue
+        if not b:
+            sub = SUBHEAD.match(s)
+            name = re.sub(r&quot;[:：]$&quot;, &quot;&quot;, sub.group(1) if sub else s)
+            if len(name) &lt;= 30 and GROUP_TAIL.search(name) and not ACTION.search(name):
+                group, pending = _clean_owner(name), None
+                continue
+            headish = (EMOJI.match(line.strip()) or re.match(r&quot;^\s*[■□▼▽●◆◇▶►【#]&quot;, line)) \
+                and not re.search(r&quot;[:：]\s*\S&quot;, s)  # 「日程調整： 9月の…」は項目
+            if sub or (len(s) &lt;= 25 and (OTHER_HEAD.search(s) or (headish and INFO_HEAD.search(s)))):
+                in_section = False  # 「▼ 次回」「今後の展望」など担当を表さない見出し＝別の節
+                continue
+            if len(s) &gt; 100:
+                continue  # 範囲内の説明文は項目にしない
+        text = EMOJI.sub(&quot;&quot;, (b.group(1) if b else s)).strip()
+        if not text or _is_done(text) or re.fullmatch(r&quot;[\d\W_]+&quot;, text):
+            continue  # 「1」だけの番号行などは項目にしない
+        owner, due_info = _item(text, pending or group, base)
+        pending = None
+        key = (owner, re.sub(r&quot;[\s（）()。、]&quot;, &quot;&quot;, text))
+        if key in seen:
+            continue
+        seen.add(key)
+        last = _row(number, text, owner, due_info)
+        results.append(last)
+        last_fresh = True
+    return results
+
+
+def _due_of(row):
+    &quot;&quot;&quot;_row の出力から parse_due_text 形式の期限情報を復元する。&quot;&quot;&quot;
+    to = lambda v: date.fromisoformat(v) if v else None
+    return {&quot;start&quot;: to(row[&quot;start&quot;]), &quot;due&quot;: to(row[&quot;due&quot;]), &quot;kind&quot;: row[&quot;due_kind&quot;], &quot;due_text&quot;: row[&quot;due_text&quot;]}
+
+
 def extract_all(minutes, base=None):
-    &quot;&quot;&quot;アクション表があれば表を正とし、無ければ行ベース抽出にフォールバックする。&quot;&quot;&quot;
-    rows = extract_from_tables(minutes, base)
-    return (rows, &quot;table&quot;) if rows else (extract_candidates(minutes), &quot;line&quot;)
+    &quot;&quot;&quot;表 → 見出し範囲 の順に試し、最初に行動が取れた方式を採る。どちらも無ければ ([], &quot;none&quot;)。&quot;&quot;&quot;
+    for mode, fn in ((&quot;table&quot;, extract_from_tables), (&quot;section&quot;, extract_from_sections)):
+        rows = fn(minutes, base)
+        if rows:
+            return rows, mode
+    return [], &quot;none&quot;
 
 
-if __name__ == &quot;__main__&quot;:
+def _self_test():
     sample = &quot;&quot;&quot;新提案書を作成。担当：田中 期限：2026-09-30
 雑談：来週の天気
 顧客へ確認。担当：佐藤
@@ -645,19 +890,24 @@ if __name__ == &quot;__main__&quot;:
 先方への連絡は対応済み
 請求書は提出済。対応不要
 請求書を送付。担当：未定 期限：2026-10-10
-先方に確認。担当：TBD&quot;&quot;&quot;
-    rows = extract_candidates(sample)
-    assert len(rows) == 8
-    assert rows[6][&quot;owner&quot;] is None and rows[6][&quot;missing&quot;] == [&quot;担当&quot;]
-    assert rows[7][&quot;missing&quot;] == [&quot;担当&quot;, &quot;期限&quot;]
-    assert rows[0][&quot;missing&quot;] == [] and rows[0][&quot;due&quot;] == &quot;2026-09-30&quot;
-    assert rows[1][&quot;missing&quot;] == [&quot;期限&quot;] and rows[1][&quot;unparsed&quot;] is False
-    assert rows[2][&quot;owner&quot;] == &quot;鈴木章裕&quot;
-    assert rows[2][&quot;start&quot;] == &quot;2026-05-23&quot; and rows[2][&quot;due&quot;] == &quot;2026-09-23&quot;
-    assert rows[3][&quot;owner&quot;] == &quot;鈴木章裕&quot; and rows[3][&quot;due&quot;] == &quot;2026-09-23&quot;
-    assert rows[4][&quot;owner&quot;] == &quot;高橋&quot; and rows[4][&quot;missing&quot;] == [&quot;期限&quot;]
-    assert rows[4][&quot;unparsed&quot;] is True
-    assert rows[5][&quot;due&quot;] == &quot;2026-10-05&quot;
+先方に確認。担当：TBD
+確認済みの見積を送付。担当：田中 期限：9/30&quot;&quot;&quot;
+    base = date(2026, 9, 16)
+    rows = extract_candidates(sample, base)
+    check = [(r[&quot;owner&quot;], r[&quot;due&quot;], r[&quot;missing&quot;], r[&quot;unparsed&quot;]) for r in rows]
+    assert check == [
+        (&quot;田中&quot;, &quot;2026-09-30&quot;, [], False),
+        (&quot;佐藤&quot;, None, [&quot;期限&quot;], False),
+        (&quot;鈴木章裕&quot;, &quot;2026-09-23&quot;, [], False),
+        (&quot;鈴木章裕&quot;, &quot;2026-09-23&quot;, [], False),
+        (&quot;高橋&quot;, None, [&quot;期限&quot;], True),
+        (&quot;山本&quot;, &quot;2026-10-05&quot;, [], False),
+        (None, &quot;2026-10-10&quot;, [&quot;担当&quot;], False),
+        (None, None, [&quot;担当&quot;, &quot;期限&quot;], False),
+        (&quot;田中&quot;, &quot;2026-09-30&quot;, [], False),  # B: 「確認済みの」は修飾 / D: 年なし日付
+    ], check
+    assert rows[2][&quot;start&quot;] == &quot;2026-05-23&quot; and all(&quot;due_text&quot; in r for r in rows)  # E
+
     table = &quot;&quot;&quot;## 基本情報
 | 項目 | 内容 |
 |---|---|
@@ -670,31 +920,247 @@ if __name__ == &quot;__main__&quot;:
 | 田中様 | 導入可否の検討 | 9/30 | 中 |
 | 未定 | 見積の作成 | 2026/10/05 | 低 |
 | 鈴木 | 資料共有 | — | 低 |
-| 鈴木 | 請求書 対応済 | 9/20 | 低 |&quot;&quot;&quot;
-    trows, mode = extract_all(table, date(2026, 9, 16))
-    assert mode == &quot;table&quot; and len(trows) == 4
-    assert trows[0][&quot;owner&quot;] == &quot;鈴木（コミクス）&quot; and trows[0][&quot;unparsed&quot;] is True
-    assert trows[1][&quot;due&quot;] == &quot;2026-09-30&quot; and trows[1][&quot;missing&quot;] == []
-    assert trows[2][&quot;missing&quot;] == [&quot;担当&quot;] and trows[2][&quot;due&quot;] == &quot;2026-10-05&quot;
-    assert trows[3][&quot;missing&quot;] == [&quot;期限&quot;] and trows[3][&quot;unparsed&quot;] is False
-    # HTML 由来（区切り行なし）の表
-    html_table = &quot;| 担当者 | タスク | 期日 |\n| 佐藤 | 提案書作成 | 12月1日 |&quot;
-    assert extract_all(html_table, date(2026, 11, 20))[0][0][&quot;due&quot;] == &quot;2026-12-01&quot;
+| 鈴木 | 請求書 対応済 | 9/20 | 低 |
+| 鈴木 | 作成済み資料の送付 | 9/30 | 低 |
+| 鈴木 | 研修 | 10/1〜10/15 | 低 |
+| 鈴木 | 次回日程の調整 | 来週中 | 低 |&quot;&quot;&quot;
+    t, mode = extract_all(table, base)
+    assert mode == &quot;table&quot; and len(t) == 7, (mode, len(t))
+    assert t[0][&quot;due&quot;] == &quot;2026-09-16&quot; and t[0][&quot;due_kind&quot;] == &quot;relative&quot; and t[0][&quot;missing&quot;] == []
+    assert t[1][&quot;due&quot;] == &quot;2026-09-30&quot; and t[1][&quot;missing&quot;] == []
+    assert t[2][&quot;missing&quot;] == [&quot;担当&quot;]
+    assert t[3][&quot;missing&quot;] == [&quot;期限&quot;] and t[3][&quot;due_kind&quot;] == &quot;none&quot;
+    assert t[4][&quot;text&quot;] == &quot;作成済み資料の送付&quot;  # C
+    assert t[5][&quot;start&quot;] == &quot;2026-10-01&quot; and t[5][&quot;due&quot;] == &quot;2026-10-15&quot;  # A
+    assert t[6][&quot;missing&quot;] == [&quot;期限&quot;] and t[6][&quot;unparsed&quot;] is True
+    assert extract_all(&quot;| 担当者 | タスク | 期日 |\n| 佐藤 | 提案書作成 | 12月1日 |&quot;, date(2026, 11, 20))[0][0][&quot;due&quot;] == &quot;2026-12-01&quot;
     assert extract_all(&quot;| 担当 | 内容 | 期限 |\n| 高橋 | 送付 | 1/10 |&quot;, date(2026, 12, 20))[0][0][&quot;due&quot;] == &quot;2027-01-10&quot;
-    for r in rows + trows:
-        print(r)
-</code></pre>
-      </details>
-      <p>
-        実行：<code>python3 action_extractor.py</code>
-        で内蔵テストが走ります。関数
-        <code>extract_all(議事録テキスト, 会議日)</code>
-        が、表があれば表を、無ければ行を対象に抽出します。
-      </p>
 
-      <footer>
-        株式会社コミクス ・ 議事録アクション抽出器 実装レポート（2026-09-23）
-      </footer>
-    </div>
-  </body>
+    section = &quot;&quot;&quot;■ 議事録（要約）
+・資料を確認した
+────────────────────────
+■ ネクストアクション
+────────────────────────
+【弊社側】
+・提案書をMessengerで送付（本日中）
+・本議事録を送付（本日中）
+【山田様側】
+・受領した提案書を社内でご検討
+・次回お打ち合わせ日程の調整
+────────────────────────
+■ 議事録（詳細版）
+・この行は範囲外&quot;&quot;&quot;
+    s, mode = extract_all(section, base)
+    assert mode == &quot;section&quot; and len(s) == 4, (mode, s)
+    assert [x[&quot;owner&quot;] for x in s] == [&quot;弊社&quot;, &quot;弊社&quot;, &quot;山田様&quot;, &quot;山田様&quot;]
+    assert s[0][&quot;due&quot;] == &quot;2026-09-16&quot; and s[2][&quot;missing&quot;] == [&quot;期限&quot;]
+
+    bracket = &quot;&quot;&quot;▼ ネクストアクション
+・[鈴木]議事録・提案書を共有(当日中)
+・[佐藤様]社内エンジニアと実装可否をご確認
+・[両者]次回打ち合わせの日程調整（9/30まで）
+・鈴木：見積を送付（2026/10/03）
+・完了した作業の報告（完了）
+▼ 次回
+・10月上旬&quot;&quot;&quot;
+    s, mode = extract_all(bracket, base)
+    assert mode == &quot;section&quot; and [(x[&quot;owner&quot;], x[&quot;due&quot;]) for x in s] == [
+        (&quot;鈴木&quot;, &quot;2026-09-16&quot;), (&quot;佐藤様&quot;, None), (&quot;両者&quot;, &quot;2026-09-30&quot;), (&quot;鈴木&quot;, &quot;2026-10-03&quot;)], s
+    assert extract_all(&quot;## 会議概要\n・雑談のみ&quot;, base) == ([], &quot;none&quot;)
+
+    # HTML から変換した議事録（絵文字見出し・「・」の改行分離・記号なし項目・次行の期限）
+    html_like = &quot;&quot;&quot;⚡ ネクストアクション
+さくら商会様(青木様・石井様)
+Facebookで鈴木とつながる
+・
+受領した資料を社内で共有・検討
+村田氏側
+🔸 日程調整： 9月の空き日程を連絡
+期限： 6月末まで
+中村氏：
+・
+所長への報告と相談
+コミクス(鈴木)
+・
+提案書を送付
+期限： 2026/10/01
+🔮 今後の展望
+短期的効果（3-6ヶ月）&quot;&quot;&quot;
+    boxed = &quot;&quot;&quot;【ネクストアクション】
+
+■加藤様
+□ 東京訪問時に鈴木へ連絡
+□ 勉強会への参加検討
+---
+## 詳細
+- 範囲外&quot;&quot;&quot;
+    b, mode = extract_all(boxed, base)
+    assert mode == &quot;section&quot; and [(x[&quot;owner&quot;], x[&quot;text&quot;]) for x in b] == [
+        (&quot;加藤様&quot;, &quot;東京訪問時に鈴木へ連絡&quot;), (&quot;加藤様&quot;, &quot;勉強会への参加検討&quot;)], b
+
+    h, mode = extract_all(html_like, base)
+    got = [(x[&quot;owner&quot;], x[&quot;text&quot;], x[&quot;due_kind&quot;], x[&quot;due&quot;]) for x in h]
+    assert mode == &quot;section&quot; and got == [
+        (&quot;さくら商会様(青木様・石井様)&quot;, &quot;Facebookで鈴木とつながる&quot;, &quot;none&quot;, None),
+        (&quot;さくら商会様(青木様・石井様)&quot;, &quot;受領した資料を社内で共有・検討&quot;, &quot;none&quot;, None),
+        (&quot;村田氏&quot;, &quot;日程調整： 9月の空き日程を連絡&quot;, &quot;relative&quot;, None),
+        (&quot;中村氏&quot;, &quot;所長への報告と相談&quot;, &quot;none&quot;, None),
+        (&quot;コミクス(鈴木)&quot;, &quot;提案書を送付&quot;, &quot;date&quot;, &quot;2026-10-01&quot;),
+    ], got
+    # 精度照合（無作為10件）で見つかった書式 ①縦並び ②2つ目の担当見出し ③ラベル行 ④小見出し＋担当列なしの表
+    vertical = &quot;&quot;&quot;🎯 ネクストアクション
+鈴木
+グループ作成
+本日中
+山田様
+友達申請
+✅ 完了済
+山田様
+契約書の確認・送付
+要調整
+双方
+相互紹介開始
+随時
+💡 共有された課題認識&quot;&quot;&quot;
+    v, mode = extract_all(vertical, base)
+    assert mode == &quot;section&quot; and [(x[&quot;owner&quot;], x[&quot;text&quot;], x[&quot;due_kind&quot;]) for x in v] == [
+        (&quot;鈴木&quot;, &quot;グループ作成&quot;, &quot;relative&quot;), (&quot;山田様&quot;, &quot;契約書の確認・送付&quot;, &quot;relative&quot;),
+        (&quot;双方&quot;, &quot;相互紹介開始&quot;, &quot;relative&quot;)], v
+    two_groups = &quot;&quot;&quot;⚡ ネクストアクション
+🏢 株式会社コミクス（鈴木氏）
+・
+✅ 議事録の作成・共有
+🎯 さくら教室（佐野氏）
+・
+🤝 社内関係者との協議&quot;&quot;&quot;
+    v, _ = extract_all(two_groups, base)
+    assert [(x[&quot;owner&quot;], x[&quot;text&quot;]) for x in v] == [
+        (&quot;株式会社コミクス（鈴木氏）&quot;, &quot;議事録の作成・共有&quot;), (&quot;さくら教室（佐野氏）&quot;, &quot;社内関係者との協議&quot;)], v
+    labels = &quot;&quot;&quot;⚡ ネクストアクション
+📱 コミクス（鈴木氏）の担当事項
+担当: 鈴木
+グループ作成
+期限: 即座
+詳細: 3名とのグループ
+担当: 鈴木
+資料の共有
+期限: 後日
+🧪 水野様の担当事項
+担当: 水野様
+見積書作成・送付
+期限: 情報受領後
+詳細: 企業向け価格
+💰 費用詳細
+| 項目 | 単価 |&quot;&quot;&quot;
+    v, _ = extract_all(labels, base)
+    assert [(x[&quot;owner&quot;], x[&quot;text&quot;], x[&quot;due_text&quot;]) for x in v] == [
+        (&quot;鈴木&quot;, &quot;グループ作成&quot;, &quot;即座&quot;), (&quot;鈴木&quot;, &quot;資料の共有&quot;, &quot;後日&quot;),
+        (&quot;水野様&quot;, &quot;見積書作成・送付&quot;, &quot;情報受領後&quot;)], v
+    subtables = &quot;&quot;&quot;## ネクストアクション
+
+### コミクス（鈴木）担当
+
+| # | アクション | 期限 | 優先度 |
+|---|---|---|---|
+| 1 | **グループ作成**（関係者） | 商談直後（即対応） | 高 |
+
+### 両社共同
+
+| # | アクション | 期限 | 優先度 |
+|---|---|---|---|
+| 1 | 優先テーマ確定 | 10/10 | 高 |
+
+## 参考：コマンド一覧
+
+| コマンド | 内容 | 時期 |
+|---|---|---|
+| /compact | 圧縮 | 自動 |&quot;&quot;&quot;
+    v, mode = extract_all(subtables, base)
+    assert mode == &quot;table&quot; and [(x[&quot;owner&quot;], x[&quot;text&quot;], x[&quot;due&quot;]) for x in v] == [
+        (&quot;コミクス（鈴木）&quot;, &quot;グループ作成（関係者）&quot;, None), (&quot;両社共同&quot;, &quot;優先テーマ確定&quot;, &quot;2026-10-10&quot;)], v
+    # 再照合で見つかった書式: 箇条書き内のラベル行・番号だけの行・「決定事項：」で節が変わる
+    misc = &quot;&quot;&quot;⚡ ネクストアクション
+🤝 次回ミーティング設定
+・担当者: 吉田氏がアレンジ
+・参加者: 営業部長
+1
+資料の送付
+弊社：
+・見積の作成
+決定事項:
+・連絡体制はMessengerに一本化&quot;&quot;&quot;
+    v, _ = extract_all(misc, base)
+    assert [(x[&quot;owner&quot;], x[&quot;text&quot;]) for x in v] == [
+        (&quot;吉田氏がアレンジ&quot;, &quot;次回ミーティング設定&quot;), (None, &quot;資料の送付&quot;), (&quot;弊社&quot;, &quot;見積の作成&quot;)], v
+    # 2回目の照合で見つかった書式: 担当見出しの間の表・### 担当小見出し・「〇〇のアクション」・完了済み・署名
+    between = &quot;&quot;&quot;✅ ネクストアクション
+【内田様側】
+| アクション | 期限 | 備考 |
+| ツール登録・試用開始 | 早期 | 会社申請可 |
+【鈴木側】
+| アクション | 期限 | 備考 |
+| 資料一式の共有 | 本日中 | Messengerで送付 |
+本議事録は株式会社コミクスにて作成いたしました。&quot;&quot;&quot;
+    v, mode = extract_all(between, base)
+    assert mode == &quot;table&quot; and [(x[&quot;owner&quot;], x[&quot;text&quot;]) for x in v] == [
+        (&quot;内田様&quot;, &quot;ツール登録・試用開始&quot;), (&quot;鈴木&quot;, &quot;資料一式の共有&quot;)], (mode, v)
+    subheads = &quot;&quot;&quot;## ネクストアクション
+### さくら商事(前田様)
+- 社内での検討
+### 株式会社コミクス(鈴木)
+- サービス活用の検討
+- 自動設定済み
+## 所感&quot;&quot;&quot;
+    v, _ = extract_all(subheads, base)
+    assert [(x[&quot;owner&quot;], x[&quot;text&quot;]) for x in v] == [
+        (&quot;さくら商事(前田様)&quot;, &quot;社内での検討&quot;), (&quot;株式会社コミクス(鈴木)&quot;, &quot;サービス活用の検討&quot;)], v
+    named = &quot;&quot;&quot;■ ネクストアクション
+鈴木氏のアクション
+・申込み受付準備（6月以降）
+西田氏のアクション
+・申込書の提出
+本議事録に関するお問い合わせ：info@example.com
+・範囲外&quot;&quot;&quot;
+    v, _ = extract_all(named, base)
+    assert [(x[&quot;owner&quot;], x[&quot;text&quot;], x[&quot;due_kind&quot;]) for x in v] == [
+        (&quot;鈴木氏&quot;, &quot;申込み受付準備（6月以降）&quot;, &quot;relative&quot;), (&quot;西田氏&quot;, &quot;申込書の提出&quot;, &quot;none&quot;)], v
+    # 3回目の照合で見つかった書式: 次行の「即日対応」・完了の表記ゆれ・別節の「〇〇アクション」・会食案内への越境
+    third = &quot;&quot;&quot;## ネクストアクション
+・Messengerグループ作成
+即日対応
+・Facebookでのフォロー継続（友達申請完了済）
+・完了 - 資料の送付
+・資料の送付（完了）
+・次回日程の確定（12月中または1月初旬）
+📅 会食・イベント情報
+・10月15日 経営者会食
+## 今後のスケジュール
+短期アクション（1週間以内）
+・社内説明&quot;&quot;&quot;
+    v, _ = extract_all(third, base)
+    assert [(x[&quot;text&quot;], x[&quot;due_kind&quot;], x[&quot;due_text&quot;]) for x in v] == [
+        (&quot;Messengerグループ作成&quot;, &quot;relative&quot;, &quot;即日対応&quot;),
+        (&quot;Facebookでのフォロー継続（友達申請完了済）&quot;, &quot;relative&quot;, &quot;継続&quot;),
+        (&quot;次回日程の確定（12月中または1月初旬）&quot;, &quot;relative&quot;, &quot;12月中または1月初旬&quot;)], v
+    labeled = &quot;&quot;&quot;■ ネクストアクション
+・優先度：高 - 所長への報告
+・期限：1週間以内 - サービス導入の検討・判断
+・完了 - 資料の送付&quot;&quot;&quot;
+    v, _ = extract_all(labeled, base)
+    assert [(x[&quot;text&quot;], x[&quot;due_text&quot;]) for x in v] == [
+        (&quot;所長への報告&quot;, None), (&quot;サービス導入の検討・判断&quot;, &quot;1週間以内&quot;)], v
+    return rows + t
+
+
+if __name__ == &quot;__main__&quot;:
+    for r in _self_test():
+        print(r)
+    print(&quot;ALL TESTS PASSED&quot;)
+</code></pre>
+</details>
+<p>実行：<code>python3 action_extractor.py</code> で内蔵テスト（行・表・見出し・HTML 変換の各書式）が走ります。関数 <code>extract_all(議事録テキスト, 会議日)</code> が、表 → 見出し範囲の順に抽出します。</p>
+
+<footer>株式会社コミクス ・ 議事録アクション抽出器 実装レポート（2026-09-23）</footer>
+</div>
+</body>
 </html>
